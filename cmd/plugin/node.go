@@ -36,23 +36,24 @@ const (
 	ctxKeyCommitChangesOn   = "commitChangesOn"
 	ctxKeyConflictPolicy    = "conflictPolicy"
 	ctxKeyPodNamespace      = "csi.storage.k8s.io/pod.namespace"
-	ctxKeyPodUID            = "csi.storage.k8s.io/pod.uid"
+	ctxKeyPodName           = "csi.storage.k8s.io/pod.name"
 )
 
 func (n *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (resp *csi.NodePublishVolumeResponse, err error) {
 	klog.Infof("request: %s", req.String())
-	ns := req.PublishContext[ctxKeyNamespace]
+	podNs := req.VolumeContext[ctxKeyPodNamespace]
+	ns := req.VolumeContext[ctxKeyNamespace]
 	if len(ns) == 0 {
-		ns = req.PublishContext[ctxKeyPodNamespace]
+		ns = podNs
 	}
 
 	err = n.mounter.Mount(ctx, req.VolumeId, req.TargetPath,
-		req.PublishContext[ctxKeyConfigMap], ns, req.PublishContext[ctxKeyPodUID],
+		req.VolumeContext[ctxKeyConfigMap], ns, req.VolumeContext[ctxKeyPodName], podNs,
 		cmmouter.ConfigMapOptions{
-			SubPath:           req.PublishContext[ctxKeySubPath],
-			KeepCurrentAlways: strings.ToLower(req.PublishContext[ctxKeyKeepCurrentAlways]) == "true",
-			CommitChangesOn:   cmmouter.ConditionCommitChanges(req.PublishContext[ctxKeyCommitChangesOn]),
-			ConflictPolicy:    cmmouter.ConfigMapConflictPolicy(req.PublishContext[ctxKeyConflictPolicy]),
+			SubPath:           req.VolumeContext[ctxKeySubPath],
+			KeepCurrentAlways: strings.ToLower(req.VolumeContext[ctxKeyKeepCurrentAlways]) == "true",
+			CommitChangesOn:   cmmouter.ConditionCommitChanges(req.VolumeContext[ctxKeyCommitChangesOn]),
+			ConflictPolicy:    cmmouter.ConfigMapConflictPolicy(req.VolumeContext[ctxKeyConflictPolicy]),
 		})
 	if err != nil {
 		return

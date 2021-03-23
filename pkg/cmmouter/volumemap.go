@@ -2,13 +2,11 @@ package cmmouter
 
 import (
 	"context"
-	"golang.org/x/xerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io/ioutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -45,7 +43,8 @@ type volumeMetadata struct {
 	ConfigMapName      string `json:"configMapName"`
 	ConfigMapNamespace string `json:"configMapNamespace"`
 	TargetPath         string `json:"targetPath"`
-	PodUID             string `json:"podUID"`
+	Pod                string `json:"pod"`
+	PodNamespace       string `json:"podNamespace"`
 	ResourceVersion    string `json:"resourceVersion"`
 }
 
@@ -84,7 +83,7 @@ func (m *volumeMap) buildOrDie() {
 			continue
 		}
 
-		if err := checkPod(ctx, m.clientset, metadata.PodUID); err != nil {
+		if err := checkPod(ctx, m.clientset, metadata.Pod, metadata.PodNamespace); err != nil {
 			m.cleanAmbiguousVolume(volumeID, "", "")
 			continue
 		}
@@ -136,26 +135,22 @@ func (m *volumeMap) watchVolume(volumeID string, metadata *volumeMetadata) error
 	return nil
 }
 
-func checkPod(ctx context.Context, clientset *kubernetes.Clientset, podUID string) error {
-	list, err := clientset.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("metadata.uid", podUID).String(),
-	})
-
+func checkPod(ctx context.Context, clientset *kubernetes.Clientset, podName, podNS string) error {
+	_, err := clientset.CoreV1().Pods(podNS).Get(ctx, podName,  metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("unable to list pod %q: %s", podUID, err)
+		klog.Errorf("unable to fetch pod %s/%s: %s", podNS, podName, err)
 		return err
-	}
-
-	if len(list.Items) == 0 {
-		klog.Errorf("pod %q not found", podUID)
-		return xerrors.Errorf("pod %q not found", podUID)
 	}
 
 	return nil
 }
 
-func (m *volumeMap) cleanAmbiguousVolume(volumeID, cmName, cmNamespace string)  {
-	klog.Errorf("clear ambiguous resource of volume %q. errors can be ignored", volumeID)
+func (m *volumeMap) cleanAmbiguousVolume(volumeID, cmName, cmNamespace string) {
+	klog.Errorf(">> clear ambiguous resource of volume %q. errors can be ignored", volumeID)
+	defer func() {
+		klog.Errorf("<< volume %q is removed", volumeID)
+	}()
+
 	delete(m.metadataMap, volumeID)
 	if len(cmName) > 0 {
 		m.cmWatcher.unwatchCM(volumeID, cmName, cmNamespace)
@@ -167,7 +162,7 @@ func (m *volumeMap) cleanAmbiguousVolume(volumeID, cmName, cmNamespace string)  
 }
 
 func (m *volumeMap) prepareVolume(
-	ctx context.Context, volumeID, targetPath, cmName, cmNamespace, podUID string, opts ConfigMapOptions,
+	ctx context.Context, volumeID, targetPath, cmName, cmNamespace, pod, podNs string, opts ConfigMapOptions,
 ) (sourcePath string, err error) {
 	cm, err := m.clientset.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
 	if err != nil {
@@ -190,7 +185,8 @@ func (m *volumeMap) prepareVolume(
 		ConfigMapName:      cmName,
 		ConfigMapNamespace: cmNamespace,
 		TargetPath:         targetPath,
-		PodUID:             podUID,
+		Pod:                pod,
+		PodNamespace:       podNs,
 	}
 
 	// write local filesystem
@@ -298,7 +294,7 @@ func (m *volumeMap) commitLocalVolumeChanges(volumeID string, metadata *volumeMe
 		}
 
 		for k, v := range volData {
-			cm.Data[k]  = v
+			cm.Data[k] = v
 		}
 
 		if cm, err = cli.Update(context.TODO(), cm, metav1.UpdateOptions{}); err != nil {

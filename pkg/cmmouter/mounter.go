@@ -76,7 +76,7 @@ type ConfigMapOptions struct {
 }
 
 func (m *Mounter) Mount(
-	ctx context.Context, volumeID, targetPath, cmName, cmNamespace, podUID string, opts ConfigMapOptions,
+	ctx context.Context, volumeID, targetPath, cmName, cmNamespace, pod, podNs string, opts ConfigMapOptions,
 ) error {
 	if len(volumeID) == 0 {
 		return status.Error(codes.InvalidArgument, "missing volumeId")
@@ -94,12 +94,30 @@ func (m *Mounter) Mount(
 		return status.Error(codes.InvalidArgument, "missing namespace")
 	}
 
-	if len(podUID) == 0 {
-		return status.Error(codes.InvalidArgument, "missing podUID")
+	if len(pod) == 0 {
+		return status.Error(codes.InvalidArgument, "missing pod name")
 	}
 
-	if notMnt, err := mount.IsNotMountPoint(m.mounter, targetPath); err != nil && !os.IsNotExist(err) {
-		return status.Error(codes.Unavailable, err.Error())
+	if len(podNs) == 0 {
+		return status.Error(codes.InvalidArgument, "missing pod namespace")
+	}
+
+	if notMnt, err := mount.IsNotMountPoint(m.mounter, targetPath); err != nil {
+		if !os.IsNotExist(err) {
+			return status.Error(codes.Internal, err.Error())
+		}
+
+		if len(opts.SubPath) > 0 {
+			f, err := os.Create(targetPath)
+			if err != nil {
+				return status.Error(codes.Internal, err.Error())
+			}
+			f.Close()
+		} else {
+			if err = os.MkdirAll(targetPath, 0755); err != nil {
+				return status.Error(codes.Internal, err.Error())
+			}
+		}
 	} else if !notMnt {
 		klog.Warning("%q is already mounted", targetPath)
 		return nil
@@ -120,7 +138,7 @@ func (m *Mounter) Mount(
 			"commitChangesOn", NoCommit, CommitOnModify, CommitOnUnmount)
 	}
 
-	source, err := m.volumeMap.prepareVolume(ctx, volumeID, targetPath, cmName, cmNamespace, podUID, opts)
+	source, err := m.volumeMap.prepareVolume(ctx, volumeID, targetPath, cmName, cmNamespace, pod, podNs, opts)
 	if err != nil {
 		return err
 	}

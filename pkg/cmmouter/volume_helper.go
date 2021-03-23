@@ -25,7 +25,7 @@ func (v volumeHelper) updateLocalVolume(
 	}
 
 	defer func() {
-		if err != nil {
+		if err == nil {
 			klog.Infof("ResourceVersion of volume %q changes from %q to %q", volumeID, metadata.ResourceVersion,
 				cm.ResourceVersion)
 			metadata.ResourceVersion = cm.ResourceVersion

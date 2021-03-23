@@ -10,7 +10,7 @@ COPY pkg ./pkg
 
 RUN CGO_ENABLED=0 go build -o csi-configmap-plugin ./cmd/plugin
 
-FROM scratch
+FROM alpine:3
 WORKDIR /
 COPY --from=builder /go/src/csi-driver-configmap/csi-configmap-plugin ./
 ENTRYPOINT ["/csi-configmap-plugin"]
