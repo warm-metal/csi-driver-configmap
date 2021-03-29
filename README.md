@@ -59,6 +59,15 @@ spec:
         # "override", override the remote changes if conflicts arise,
         # "discard", discard local changes.
         conflictPolicy: "override"
+
+        # Specify how to update the ConfigMap if local size is over than the hard size limit, that is 1MiB.
+        # REQUIRED if commitChangesOn is set.
+        # Valid values are:
+        # "truncateHead", truncates the content from the head,
+        # "truncateTail", truncates the content from the tail,
+        # "truncateHeadLine", truncateHead and keep at least a whole line, 
+        # "truncateTailLine", truncateTail and keep at least a whole line.
+        oversizePolicy: ""
     name: cm-foo
 ```
 
