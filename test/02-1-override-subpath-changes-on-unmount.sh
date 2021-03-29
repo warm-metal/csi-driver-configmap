@@ -27,6 +27,7 @@ spec:
         subPath: foo.txt
         commitChangesOn: unmount
         conflictPolicy: override
+        oversizePolicy: truncateHeadLine
     name: cm-foo
 '
 

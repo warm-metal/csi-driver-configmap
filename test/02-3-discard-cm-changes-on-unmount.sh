@@ -26,6 +26,7 @@ spec:
         configMap: cm-foo
         commitChangesOn: unmount
         conflictPolicy: discard
+        oversizePolicy: truncateHeadLine
     name: cm-foo
 '
 

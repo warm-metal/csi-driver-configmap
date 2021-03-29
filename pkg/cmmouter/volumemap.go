@@ -12,6 +12,8 @@ import (
 	"k8s.io/klog/v2"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -271,6 +273,8 @@ func (m *volumeMap) commitLocalChanges(volumeID string) {
 	m.commitLocalVolumeChanges(volumeID, metadata)
 }
 
+const configMapSizeHardLimit = 1 << 20
+
 func (m *volumeMap) commitLocalVolumeChanges(volumeID string, metadata *volumeMetadata) {
 	volData := m.readLocalVolume(volumeID, metadata)
 	if len(volData) == 0 {
@@ -293,21 +297,119 @@ func (m *volumeMap) commitLocalVolumeChanges(volumeID string, metadata *volumeMe
 			}
 		}
 
-		for k, v := range volData {
-			cm.Data[k] = v
+		originalSize := 0
+		totalSize := 0
+		cmData := make(map[string]string, len(cm.Data))
+		for k, v := range cm.Data {
+			// Users can only update existed values.
+			originalSize += len(v)
+
+			if newV, found := volData[k]; found {
+				totalSize += len(newV)
+				cmData[k] = newV
+			} else {
+				totalSize += len(v)
+				cmData[k] = v
+			}
+		}
+
+		if totalSize > configMapSizeHardLimit {
+			klog.Warningf("total size of updated configmap is over the 1MB limit. apply %q policy",
+				metadata.OversizePolicy)
+			applyOversizePolicy(cm.Data, volData, originalSize, metadata.OversizePolicy)
+		} else {
+			cm.Data = cmData
 		}
 
 		if cm, err = cli.Update(context.TODO(), cm, metav1.UpdateOptions{}); err != nil {
+			klog.Errorf("unable to update configmap for volume %q(size:%d): %s", volumeID, totalSize, err)
 			return err
 		}
 
 		metadata.ResourceVersion = cm.ResourceVersion
 		m.persistentMetadata(volumeID, metadata)
+		klog.Infof("volume %q committed", volumeID)
 		return nil
 	})
 
 	if err != nil {
-		klog.Errorf("unable to udpate configmap %s/%: %s", metadata.ConfigMapName, metadata.ConfigMapNamespace,
+		klog.Errorf("unable to udpate configmap %s/%s: %s", metadata.ConfigMapNamespace, metadata.ConfigMapName,
 			err)
+	}
+}
+
+func applyOversizePolicy(cmData, volData map[string]string, originalSize int, policy ConfigMapOversizePolicy) {
+	fileSizeDelta := make(map[string]int, len(volData))
+	deltaOrder := make([]string, 0, len(volData))
+	for k, v := range cmData {
+		if newV, found := volData[k]; found && newV != v {
+			fileSizeDelta[k] = len(newV) - len(v)
+			deltaOrder = append(deltaOrder, k)
+		}
+	}
+
+	sort.Slice(deltaOrder, func(i, j int) bool {
+		return fileSizeDelta[deltaOrder[i]] < fileSizeDelta[deltaOrder[j]]
+	})
+
+	freeSize := configMapSizeHardLimit - originalSize
+	for _, k := range deltaOrder {
+		if freeSize < 0 {
+			klog.Fatalf("deltaOrder: %#v, k: %s, volData: %#v", deltaOrder, k, volData)
+		}
+
+		if fileSizeDelta[k] <= freeSize {
+			cmData[k] = volData[k]
+			freeSize -= fileSizeDelta[k]
+			continue
+		}
+
+		maxDataSize := len(cmData[k]) + freeSize
+		v := volData[k]
+		if len(v) <= maxDataSize {
+			klog.Fatalf("k: %s, v: %s, maxDataSize: %d", k, v, maxDataSize)
+		}
+
+		switch policy {
+		case TruncateHead:
+			cmData[k] = v[len(v) - maxDataSize:]
+		case TruncateTail:
+			cmData[k] = v[:maxDataSize]
+		case TruncateHeadLine:
+			dataStart := len(v) - maxDataSize
+			if dataStart > 0 && v[dataStart-1] != 0x0a {
+				lineEnd := strings.IndexByte(v[dataStart:], 0x0a)
+				if lineEnd < 0 || lineEnd == maxDataSize {
+					continue
+				}
+
+				lineEnd++
+				dataStart += lineEnd
+				freeSize -= len(v) - dataStart - len(cmData[k])
+				cmData[k] = v[dataStart:]
+				continue
+			}
+
+			cmData[k] = v[dataStart:]
+		case TruncateTailLine:
+			dataEnd := maxDataSize
+			if dataEnd < len(v) && v[dataEnd-1] != 0x0a {
+				lineEnd := strings.LastIndexByte(v[:dataEnd], 0x0a)
+				if lineEnd < 0 {
+					continue
+				}
+
+				lineEnd++
+				freeSize -= lineEnd - len(cmData[k])
+				cmData[k] = v[:lineEnd]
+				continue
+			}
+
+			cmData[k] = v[:dataEnd]
+		default:
+			panic(policy)
+		}
+
+		break
 	}
 }

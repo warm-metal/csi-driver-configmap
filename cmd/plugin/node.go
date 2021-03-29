@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	csicommon "github.com/kubernetes-csi/drivers/pkg/csi-common"
 	"github.com/warm-metal/csi-driver-configmap/pkg/cmmouter"
+	"github.com/warm-metal/csi-drivers/pkg/csi-common"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
@@ -35,6 +35,7 @@ const (
 	ctxKeyKeepCurrentAlways = "keepCurrentAlways"
 	ctxKeyCommitChangesOn   = "commitChangesOn"
 	ctxKeyConflictPolicy    = "conflictPolicy"
+	ctxKeyOversizePolicy    = "oversizePolicy"
 	ctxKeyPodNamespace      = "csi.storage.k8s.io/pod.namespace"
 	ctxKeyPodName           = "csi.storage.k8s.io/pod.name"
 )
@@ -54,6 +55,7 @@ func (n *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 			KeepCurrentAlways: strings.ToLower(req.VolumeContext[ctxKeyKeepCurrentAlways]) == "true",
 			CommitChangesOn:   cmmouter.ConditionCommitChanges(req.VolumeContext[ctxKeyCommitChangesOn]),
 			ConflictPolicy:    cmmouter.ConfigMapConflictPolicy(req.VolumeContext[ctxKeyConflictPolicy]),
+			OversizePolicy:    cmmouter.ConfigMapOversizePolicy(req.VolumeContext[ctxKeyOversizePolicy]),
 		})
 	if err != nil {
 		return

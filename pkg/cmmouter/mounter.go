@@ -68,11 +68,21 @@ const (
 	OverrideRemoteChanges ConfigMapConflictPolicy = "override"
 )
 
+type ConfigMapOversizePolicy string
+
+const (
+	TruncateHead     ConfigMapOversizePolicy = "truncateHead"
+	TruncateHeadLine ConfigMapOversizePolicy = "truncateHeadLine"
+	TruncateTail     ConfigMapOversizePolicy = "truncateTail"
+	TruncateTailLine ConfigMapOversizePolicy = "truncateTailLine"
+)
+
 type ConfigMapOptions struct {
 	SubPath           string                  `json:"subPath,omitempty"`
 	KeepCurrentAlways bool                    `json:"keepCurrentAlways,omitempty"`
 	CommitChangesOn   ConditionCommitChanges  `json:"commitChangesOn,omitempty"`
 	ConflictPolicy    ConfigMapConflictPolicy `json:"conflictPolicy,omitempty"`
+	OversizePolicy    ConfigMapOversizePolicy `json:"oversizePolicy,omitempty"`
 }
 
 func (m *Mounter) Mount(
@@ -132,6 +142,14 @@ func (m *Mounter) Mount(
 			return status.Errorf(codes.InvalidArgument,
 				"conflictPolicy is required if commitChangesOn is enabled. valid values are %q and %q",
 				DiscardLocalChanges, OverrideRemoteChanges)
+		}
+
+		switch opts.OversizePolicy {
+		case TruncateHead, TruncateHeadLine, TruncateTail, TruncateTailLine:
+		default:
+			return status.Errorf(codes.InvalidArgument,
+				"oversizePolicy is required if commitChangesOn is enabled. valid values are %q, %q, %q and %q",
+				TruncateHead, TruncateHeadLine, TruncateTail, TruncateTailLine)
 		}
 	default:
 		return status.Errorf(codes.InvalidArgument, "valid values of %q are %q, %q, and %q",

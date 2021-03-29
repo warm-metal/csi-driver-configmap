@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/kubernetes-csi/drivers/pkg/csi-common"
 	"github.com/warm-metal/csi-driver-configmap/pkg/cmmouter"
+	"github.com/warm-metal/csi-drivers/pkg/csi-common"
 	"k8s.io/klog/v2"
 )
 
@@ -21,6 +21,7 @@ const (
 )
 
 func main() {
+	klog.InitFlags(nil)
 	if err := flag.Set("logtostderr", "true"); err != nil {
 		panic(err)
 	}
