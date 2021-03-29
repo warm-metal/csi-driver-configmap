@@ -6,9 +6,9 @@ require (
 	github.com/container-storage-interface/spec v1.4.0
 	github.com/golang/protobuf v1.5.1 // indirect
 	github.com/kubernetes-csi/csi-lib-utils v0.9.1 // indirect
-	github.com/kubernetes-csi/drivers v1.0.2
+	github.com/warm-metal/csi-drivers v0.5.0-alpha.0.0.20210329115909-0c9dadaa5f8b
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
-	google.golang.org/grpc v1.36.0
+	google.golang.org/grpc v1.36.1
 	k8s.io/api v0.20.5
 	k8s.io/apimachinery v0.20.5
 	k8s.io/client-go v0.20.5

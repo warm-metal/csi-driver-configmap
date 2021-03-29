@@ -27,6 +27,7 @@ spec:
         commitChangesOn: modify
         conflictPolicy: override
         keepCurrentAlways: "true"
+        oversizePolicy: truncateHeadLine
     name: cm-foo
 '
 

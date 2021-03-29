@@ -2,10 +2,12 @@
 
 set -e
 
+kubectl -n foo create --dry-run=client -oyaml configmap cm-foo --from-file=foo.txt | kubectl apply --wait -f -
+
 manifest='apiVersion: v1
 kind: Pod
 metadata:
-  name: 02-2
+  name: 04-1
   namespace: foo
 spec:
   containers:
@@ -15,16 +17,17 @@ spec:
     args:
     - -f
     - /dev/null
-    name: 02-2
+    name: 04-1
     volumeMounts:
-    - mountPath: /mnt
+    - mountPath: /mnt/foo.txt
       name: cm-foo
   volumes:
   - csi:
       driver: csi-cm.warm-metal.tech
       volumeAttributes:
         configMap: cm-foo
-        commitChangesOn: modify
+        subPath: foo.txt
+        commitChangesOn: unmount
         conflictPolicy: override
         oversizePolicy: truncateHeadLine
     name: cm-foo
@@ -33,22 +36,19 @@ spec:
 echo "$manifest" | kubectl apply --wait -f -
 
 echo "waiting for pod to be ready"
-kubectl wait -n foo --for=condition=ready --timeout=10s po/02-2
+kubectl wait -n foo --for=condition=ready --timeout=10s po/04-1
 
-echo "updating foo.txt"
-kubectl -n foo exec 02-2 -- sh -c "echo 'override' > /mnt/foo.txt"
+echo "updating configmap volume"
+kubectl -n foo exec 04-1 -- sh -c "yes X | awk '{ printf(\"%s\", \$0)}' | head -c 1048576 > /mnt/foo.txt"
+kubectl -n foo exec 04-1 -- sh -c "echo $'\nonlyline' >> /mnt/foo.txt"
+
+echo "unmount the configmap"
+kubectl -n foo delete po 04-1
 
 footxt=$(kubectl -n foo get cm cm-foo -o template --template='{{index .data "foo.txt"}}')
-if [ "$footxt" != "override" ]; then
-  exit 1
-fi
+echo $footxt
 
-echo "updating bar.txt"
-kubectl -n foo exec 02-2 -- sh -c "echo 'override' > /mnt/bar.txt"
-
-bartxt=$(kubectl -n foo get cm cm-foo -o template --template='{{index .data "bar.txt"}}')
-
-if [ "$bartxt" != "override" ]; then
+if [ "$footxt" != "onlyline" ]; then
   exit 1
 fi
 
