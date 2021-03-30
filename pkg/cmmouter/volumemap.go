@@ -1,7 +1,9 @@
 package cmmouter
 
 import (
+	"bytes"
 	"context"
+	"golang.org/x/xerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io/ioutil"
@@ -13,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 )
 
@@ -138,7 +139,7 @@ func (m *volumeMap) watchVolume(volumeID string, metadata *volumeMetadata) error
 }
 
 func checkPod(ctx context.Context, clientset *kubernetes.Clientset, podName, podNS string) error {
-	_, err := clientset.CoreV1().Pods(podNS).Get(ctx, podName,  metav1.GetOptions{})
+	_, err := clientset.CoreV1().Pods(podNS).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("unable to fetch pod %s/%s: %s", podNS, podName, err)
 		return err
@@ -263,7 +264,6 @@ func (m *volumeMap) updateLocalFs(volumeID string, cm *corev1.ConfigMap) {
 
 func (m *volumeMap) commitLocalChanges(volumeID string) {
 	// get volGuard locked in callers
-	// FIXME try to commit in background
 	metadata := m.metadataMap[volumeID]
 	if metadata == nil {
 		klog.Warningf("volume %q is not found. stop its configmap watcher", volumeID)
@@ -299,6 +299,26 @@ func (m *volumeMap) commitLocalVolumeChanges(volumeID string, metadata *volumeMe
 
 		originalSize := 0
 		totalSize := 0
+		volBinaries := make(map[string][]byte, len(cm.BinaryData))
+
+		cmBinaries := make(map[string][]byte, len(cm.BinaryData))
+		for k, v := range cm.BinaryData {
+			// Users can only update existed values.
+			originalSize += len(v)
+
+			if newV, found := volData[k]; found {
+				totalSize += len(newV)
+				cmBinaries[k] = newV
+				volBinaries[k] = newV
+				delete(volData, k)
+			} else {
+				totalSize += len(v)
+				cmBinaries[k] = v
+			}
+		}
+
+		binarySizeDelta := totalSize - originalSize
+
 		cmData := make(map[string]string, len(cm.Data))
 		for k, v := range cm.Data {
 			// Users can only update existed values.
@@ -306,16 +326,25 @@ func (m *volumeMap) commitLocalVolumeChanges(volumeID string, metadata *volumeMe
 
 			if newV, found := volData[k]; found {
 				totalSize += len(newV)
-				cmData[k] = newV
+				cmData[k] = string(newV)
 			} else {
 				totalSize += len(v)
 				cmData[k] = v
 			}
 		}
 
+		if binarySizeDelta + originalSize > configMapSizeHardLimit {
+			klog.Errorf("total binary size of volume %q is over the 1MB limit. Give up.", volumeID)
+			return xerrors.New("total binary size is over the 1MB limit. Give up.")
+		}
+
+		cm.BinaryData = cmBinaries
+		originalSize+=binarySizeDelta
+
 		if totalSize > configMapSizeHardLimit {
 			klog.Warningf("total size of updated configmap is over the 1MB limit. apply %q policy",
 				metadata.OversizePolicy)
+
 			applyOversizePolicy(cm.Data, volData, originalSize, metadata.OversizePolicy)
 		} else {
 			cm.Data = cmData
@@ -338,74 +367,92 @@ func (m *volumeMap) commitLocalVolumeChanges(volumeID string, metadata *volumeMe
 	}
 }
 
-func applyOversizePolicy(cmData, volData map[string]string, originalSize int, policy ConfigMapOversizePolicy) {
+type mapIO struct {
+	Key            string
+	Write          func(key string, data []byte)
+	Read           func(key string) []byte
+	ReadVolume     func(key string) []byte
+}
+
+func applyOversizePolicy(
+	cmData map[string]string, volData map[string][]byte, originalSize int,
+	policy ConfigMapOversizePolicy,
+) {
 	fileSizeDelta := make(map[string]int, len(volData))
-	deltaOrder := make([]string, 0, len(volData))
+	dataWriter := func(key string, data []byte) { cmData[key] = string(data) }
+	dataReader := func(key string) []byte { return []byte(cmData[key]) }
+	dataVolReader := func(key string) []byte { return volData[key] }
+
+	deltaOrder := make([]mapIO, 0, len(volData))
 	for k, v := range cmData {
-		if newV, found := volData[k]; found && newV != v {
+		if newV, found := volData[k]; found {
 			fileSizeDelta[k] = len(newV) - len(v)
-			deltaOrder = append(deltaOrder, k)
+			deltaOrder = append(deltaOrder, mapIO{k, dataWriter, dataReader, dataVolReader})
 		}
 	}
 
 	sort.Slice(deltaOrder, func(i, j int) bool {
-		return fileSizeDelta[deltaOrder[i]] < fileSizeDelta[deltaOrder[j]]
+		return fileSizeDelta[deltaOrder[i].Key] < fileSizeDelta[deltaOrder[j].Key]
 	})
 
 	freeSize := configMapSizeHardLimit - originalSize
-	for _, k := range deltaOrder {
+	for _, delta := range deltaOrder {
 		if freeSize < 0 {
-			klog.Fatalf("deltaOrder: %#v, k: %s, volData: %#v", deltaOrder, k, volData)
+			klog.Fatalf("deltaOrder: %#v, k: %s, volData: %#v", deltaOrder, delta.Key, volData)
 		}
 
-		if fileSizeDelta[k] <= freeSize {
-			cmData[k] = volData[k]
-			freeSize -= fileSizeDelta[k]
+		if fileSizeDelta[delta.Key] <= freeSize {
+			delta.Write(delta.Key, delta.ReadVolume(delta.Key))
+			freeSize -= fileSizeDelta[delta.Key]
 			continue
 		}
 
-		maxDataSize := len(cmData[k]) + freeSize
-		v := volData[k]
+		origin := delta.Read(delta.Key)
+		maxDataSize := len(origin) + freeSize
+		v := delta.ReadVolume(delta.Key)
 		if len(v) <= maxDataSize {
-			klog.Fatalf("k: %s, v: %s, maxDataSize: %d", k, v, maxDataSize)
+			klog.Fatalf("k: %s, v: %s, maxDataSize: %d", delta.Key, v, maxDataSize)
 		}
+
+		klog.V(5).Infof("k: %s, freeSize: %d, maxDataSize: %d", delta.Key, freeSize, maxDataSize)
 
 		switch policy {
 		case TruncateHead:
-			cmData[k] = v[len(v) - maxDataSize:]
-		case TruncateTail:
-			cmData[k] = v[:maxDataSize]
+			delta.Write(delta.Key, v[len(v)-maxDataSize:])
 		case TruncateHeadLine:
 			dataStart := len(v) - maxDataSize
 			if dataStart > 0 && v[dataStart-1] != 0x0a {
-				lineEnd := strings.IndexByte(v[dataStart:], 0x0a)
+				lineEnd := bytes.IndexByte(v[dataStart:], 0x0a)
 				if lineEnd < 0 || lineEnd == maxDataSize {
 					continue
 				}
 
 				lineEnd++
 				dataStart += lineEnd
-				freeSize -= len(v) - dataStart - len(cmData[k])
-				cmData[k] = v[dataStart:]
+				freeSize -= len(v) - dataStart - len(origin)
+				delta.Write(delta.Key, v[dataStart:])
 				continue
 			}
 
-			cmData[k] = v[dataStart:]
+			delta.Write(delta.Key, v[dataStart:])
+
+		case TruncateTail:
+			delta.Write(delta.Key, v[:maxDataSize])
 		case TruncateTailLine:
 			dataEnd := maxDataSize
 			if dataEnd < len(v) && v[dataEnd-1] != 0x0a {
-				lineEnd := strings.LastIndexByte(v[:dataEnd], 0x0a)
+				lineEnd := bytes.LastIndexByte(v[:dataEnd], 0x0a)
 				if lineEnd < 0 {
 					continue
 				}
 
 				lineEnd++
-				freeSize -= lineEnd - len(cmData[k])
-				cmData[k] = v[:lineEnd]
+				freeSize -= lineEnd - len(origin)
+				delta.Write(delta.Key, v[:lineEnd])
 				continue
 			}
 
-			cmData[k] = v[:dataEnd]
+			delta.Write(delta.Key, v[:dataEnd])
 		default:
 			panic(policy)
 		}

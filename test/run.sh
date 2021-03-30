@@ -16,6 +16,11 @@ kubectl create --dry-run=client -oyaml ns bar | kubectl apply --wait -f -
 echo "Creating configmap foo/cm-foo"
 kubectl -n foo create --dry-run=client -oyaml configmap cm-foo --from-file=foo.txt --from-file=bar.txt | kubectl apply --wait -f -
 
+echo "Creating configmap foo/cm-complicated"
+kubectl -n foo create --dry-run=client -oyaml configmap cm-complicated \
+  --from-file=foo.txt --from-file=foo.bin \
+  --from-file=bar.txt --from-file=bar.bin | kubectl apply --wait -f -
+
 echo "Creating configmap bar/cm-bar"
 kubectl -n bar create --dry-run=client -oyaml configmap cm-bar --from-file=foo.txt --from-file=bar.txt | kubectl apply --wait -f -
 

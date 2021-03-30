@@ -60,13 +60,15 @@ spec:
         # "discard", discard local changes.
         conflictPolicy: "override"
 
-        # Specify how to update the ConfigMap if local size is over than the hard size limit, that is 1MiB.
+        # Specify how to update the ConfigMap if local size is over than the size limit, that is 1(one) MiB.
+        # The policy would not apply to ConfigMap.BinaryData. If size of ConfigMap.BinaryData is over the limit,
+        # all changes would be discarded.
         # REQUIRED if commitChangesOn is set.
         # Valid values are:
         # "truncateHead", truncates the content from the head,
         # "truncateTail", truncates the content from the tail,
-        # "truncateHeadLine", truncateHead and keep at least a whole line, 
-        # "truncateTailLine", truncateTail and keep at least a whole line.
+        # "truncateHeadLine", truncateHead and the partial line at the beginning, 
+        # "truncateTailLine", truncateTail as well as the partial line at the end.
         oversizePolicy: ""
     name: cm-foo
 ```

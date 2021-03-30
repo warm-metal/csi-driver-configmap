@@ -46,7 +46,6 @@ echo "unmount the configmap"
 kubectl -n foo delete po 04-1
 
 footxt=$(kubectl -n foo get cm cm-foo -o template --template='{{index .data "foo.txt"}}')
-echo $footxt
 
 if [ "$footxt" != "onlyline" ]; then
   exit 1
