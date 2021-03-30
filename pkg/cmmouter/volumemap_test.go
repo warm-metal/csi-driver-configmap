@@ -11,7 +11,7 @@ func init() {
 	testing.Init()
 	klog.InitFlags(flag.CommandLine)
 	flag.Set("logtostderr", "true")
-	flag.Set("v", "7")
+	flag.Set("v", "5")
 	flag.Parse()
 }
 
@@ -28,12 +28,12 @@ func TestOversizePolicyExactFullSize(t *testing.T) {
 		"foo.txt": rand.String(configMapSizeHardLimit),
 	}
 
-	volData := map[string]string{
-		"foo.txt": rand.String(configMapSizeHardLimit),
+	volData := map[string][]byte{
+		"foo.txt": []byte(rand.String(configMapSizeHardLimit)),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHead)
-	if cmData["foo.txt"] != volData["foo.txt"] {
+	if cmData["foo.txt"] != string(volData["foo.txt"]) {
 		t.Fail()
 	}
 }
@@ -44,8 +44,8 @@ func TestOversizePolicyTruncateHead(t *testing.T) {
 	}
 
 	truncatedData := rand.String(configMapSizeHardLimit)
-	volData := map[string]string{
-		"foo.txt": "head-" + truncatedData,
+	volData := map[string][]byte{
+		"foo.txt": []byte("head-" + truncatedData),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHead)
@@ -60,8 +60,8 @@ func TestOversizePolicyTruncateHeadLineExactSize(t *testing.T) {
 	}
 
 	truncatedData := "head-" + rand.String(configMapSizeHardLimit - len("head-"))
-	volData := map[string]string{
-		"foo.txt": "123\x0a" + truncatedData,
+	volData := map[string][]byte{
+		"foo.txt": []byte("123\x0a" + truncatedData),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHeadLine)
@@ -76,8 +76,8 @@ func TestOversizePolicyTruncateHeadLineLessThanTheLimit(t *testing.T) {
 	}
 
 	truncatedData := "head-" + rand.String(configMapSizeHardLimit - len("head-") - 3)
-	volData := map[string]string{
-		"foo.txt": "123\x0a" + truncatedData,
+	volData := map[string][]byte{
+		"foo.txt": []byte("123\x0a" + truncatedData),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHeadLine)
@@ -92,8 +92,8 @@ func TestOversizePolicyTruncateHeadLineCase1(t *testing.T) {
 	}
 
 	truncatedData := "onlyline"
-	volData := map[string]string{
-		"foo.txt": rand.String(configMapSizeHardLimit) + "\n" + truncatedData,
+	volData := map[string][]byte{
+		"foo.txt": []byte(rand.String(configMapSizeHardLimit) + "\n" + truncatedData),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHeadLine)
@@ -108,8 +108,8 @@ func TestOversizePolicyTruncateTailLine(t *testing.T) {
 	}
 
 	truncatedData := rand.String(configMapSizeHardLimit)
-	volData := map[string]string{
-		"foo.txt": truncatedData + "-tail",
+	volData := map[string][]byte{
+		"foo.txt": []byte(truncatedData + "-tail"),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateTail)
@@ -124,8 +124,8 @@ func TestOversizePolicyTruncateTailExactSize(t *testing.T) {
 	}
 
 	truncatedData := rand.String(configMapSizeHardLimit - len("-tail\x0a")) + "-tail\x0a"
-	volData := map[string]string{
-		"foo.txt": truncatedData + "123",
+	volData := map[string][]byte{
+		"foo.txt": []byte(truncatedData + "123"),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateTailLine)
@@ -140,8 +140,8 @@ func TestOversizePolicyTruncateTailLineLessThanTheLimit(t *testing.T) {
 	}
 
 	truncatedData := rand.String(configMapSizeHardLimit - len("-tail\x0a") - len("123")) + "-tail\x0a"
-	volData := map[string]string{
-		"foo.txt": truncatedData + "1234",
+	volData := map[string][]byte{
+		"foo.txt": []byte(truncatedData + "1234"),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateTailLine)
@@ -160,18 +160,18 @@ func TestOversizePolicyExactFullSizeOnMultipleFiles(t *testing.T) {
 		"bar.txt": rand.String(size - sizeDeltaBar),
 	}
 
-	volData := map[string]string{
-		"foo.txt": rand.String(size),
-		"bar.txt": rand.String(size),
+	volData := map[string][]byte{
+		"foo.txt": []byte(rand.String(size)),
+		"bar.txt": []byte(rand.String(size)),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHead)
-	if cmData["foo.txt"] != volData["foo.txt"] {
+	if cmData["foo.txt"] != string(volData["foo.txt"]) {
 		t.Log("foo.txt mismatched")
 		t.Fail()
 	}
 
-	if cmData["bar.txt"] != volData["bar.txt"] {
+	if cmData["bar.txt"] != string(volData["bar.txt"]) {
 		t.Log("bar.txt mismatched")
 		t.Fail()
 	}
@@ -187,13 +187,13 @@ func TestOversizePolicyTruncateHeadOfSecond(t *testing.T) {
 	}
 
 	truncatedData := rand.String(size)
-	volData := map[string]string{
-		"foo.txt": rand.String(size),
-		"bar.txt": "head-" + truncatedData,
+	volData := map[string][]byte{
+		"foo.txt": []byte(rand.String(size)),
+		"bar.txt": []byte("head-" + truncatedData),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHead)
-	if cmData["foo.txt"] != volData["foo.txt"] {
+	if cmData["foo.txt"] != string(volData["foo.txt"]) {
 		t.Log("foo.txt mismatched")
 		t.Fail()
 	}
@@ -214,9 +214,9 @@ func TestOversizePolicyTruncateHeadLineOfTheFirst(t *testing.T) {
 	}
 
 	fooTxt := "78" + rand.String(size - sizeDeltaFoo)
-	volData := map[string]string{
-		"foo.txt": "12345\x0a" + fooTxt,
-		"bar.txt": "1" + rand.String(size),
+	volData := map[string][]byte{
+		"foo.txt": []byte("12345\x0a" + fooTxt),
+		"bar.txt": []byte("1" + rand.String(size)),
 	}
 
 	applyOversizePolicy(cmData, volData, totalSizeOfCmData(cmData), TruncateHeadLine)
@@ -225,7 +225,7 @@ func TestOversizePolicyTruncateHeadLineOfTheFirst(t *testing.T) {
 		t.Fail()
 	}
 
-	if cmData["bar.txt"] != volData["bar.txt"] {
+	if cmData["bar.txt"] != string(volData["bar.txt"]) {
 		t.Log("bar.txt mismatched")
 		t.Fail()
 	}

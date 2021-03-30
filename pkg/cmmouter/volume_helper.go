@@ -14,6 +14,16 @@ type volumeHelper struct {
 	volumeRoot string
 }
 
+func readDataFromConfigMap(cm *corev1.ConfigMap, k string) ([]byte, bool) {
+	c, found := cm.Data[k]
+	if found {
+		return []byte(c), found
+	}
+
+	bytes, found := cm.BinaryData[k]
+	return bytes, found
+}
+
 func (v volumeHelper) updateLocalVolume(
 	volumeID string, metadata *volumeMetadata, cm *corev1.ConfigMap,
 ) (path string, needToPersistentMetadata bool, err error) {
@@ -35,7 +45,7 @@ func (v volumeHelper) updateLocalVolume(
 
 	if len(metadata.SubPath) > 0 {
 		klog.Infof("update volume file %q", path)
-		subContent, found := cm.Data[metadata.SubPath]
+		subContent, found := readDataFromConfigMap(cm, metadata.SubPath)
 		if !found {
 			klog.Errorf("subPath %q not found in configmap %s/%s which is mounted by volume %q",
 				metadata.SubPath, metadata.ConfigMapNamespace, metadata.ConfigMapName, volumeID)
@@ -48,28 +58,39 @@ func (v volumeHelper) updateLocalVolume(
 			err = status.Error(codes.Aborted, err.Error())
 			return
 		}
-	} else {
-		klog.Infof("update volume directory %q", path)
-		if err = os.MkdirAll(path, 0755); err != nil {
-			klog.Errorf("unable to create dir %q: %s", path, err)
+
+		return
+	}
+
+	klog.Infof("update volume directory %q", path)
+	if err = os.MkdirAll(path, 0755); err != nil {
+		klog.Errorf("unable to create dir %q: %s", path, err)
+		err = status.Error(codes.Aborted, err.Error())
+		return
+	}
+
+	for f, content := range cm.Data {
+		subpath := filepath.Join(path, f)
+		if err = ioutil.WriteFile(subpath, []byte(content), 0644); err != nil {
+			klog.Errorf("unable to update %q: %s", subpath, err)
 			err = status.Error(codes.Aborted, err.Error())
 			return
 		}
+	}
 
-		for f, content := range cm.Data {
-			subpath := filepath.Join(path, f)
-			if err = ioutil.WriteFile(subpath, []byte(content), 0644); err != nil {
-				klog.Errorf("unable to update %q: %s", subpath, err)
-				err = status.Error(codes.Aborted, err.Error())
-				return
-			}
+	for f, content := range cm.BinaryData {
+		subpath := filepath.Join(path, f)
+		if err = ioutil.WriteFile(subpath, content, 0644); err != nil {
+			klog.Errorf("unable to update %q: %s", subpath, err)
+			err = status.Error(codes.Aborted, err.Error())
+			return
 		}
 	}
 
 	return
 }
 
-func (v volumeHelper) readLocalVolume(volumeID string, metadata *volumeMetadata) map[string]string {
+func (v volumeHelper) readLocalVolume(volumeID string, metadata *volumeMetadata) map[string][]byte {
 	path := filepath.Join(v.volumeRoot, volumeID)
 	fi, err := os.Lstat(path)
 	if err != nil {
@@ -93,7 +114,7 @@ func (v volumeHelper) readLocalVolume(volumeID string, metadata *volumeMetadata)
 			return nil
 		}
 
-		data := make(map[string]string, len(fis))
+		data := make(map[string][]byte, len(fis))
 		for _, fi := range fis {
 			pathi := filepath.Join(path, fi.Name())
 			bytes, err := ioutil.ReadFile(pathi)
@@ -102,7 +123,7 @@ func (v volumeHelper) readLocalVolume(volumeID string, metadata *volumeMetadata)
 				return nil
 			}
 
-			data[fi.Name()] = string(bytes)
+			data[fi.Name()] = bytes
 		}
 
 		return data
@@ -119,7 +140,7 @@ func (v volumeHelper) readLocalVolume(volumeID string, metadata *volumeMetadata)
 			metadata.ConfigMapNamespace, metadata.ConfigMapName)
 	}
 
-	return map[string]string{metadata.SubPath: string(bytes)}
+	return map[string][]byte{metadata.SubPath: bytes}
 }
 
 func (v volumeHelper) deleteVolume(volumeID string) error {

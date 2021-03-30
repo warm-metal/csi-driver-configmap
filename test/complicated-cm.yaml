@@ -1,0 +1,16 @@
+apiVersion: v1
+data:
+  bar.txt: |-
+    a
+    b
+    c
+  foo.txt: |-
+    0
+    1
+    2
+binaryData:
+  bar.bin: "\n\v\f"
+  foo.bin: "\x01\x02\x03"
+kind: ConfigMap
+metadata:
+  name: cm-complicated
