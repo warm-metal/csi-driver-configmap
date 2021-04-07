@@ -32,12 +32,15 @@ func main() {
 	driver.AddVolumeCapabilityAccessModes([]csi.VolumeCapability_AccessMode_Mode{
 		csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 	})
+	driver.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_UNKNOWN,
+	})
 
 	server := csicommon.NewNonBlockingGRPCServer()
 
 	server.Start(*endpoint,
 		csicommon.NewDefaultIdentityServer(driver),
-		nil,
+		&controllerServer{csicommon.NewDefaultControllerServer(driver)},
 		&nodeServer{
 			DefaultNodeServer: csicommon.NewDefaultNodeServer(driver),
 			mounter:           cmmouter.NewMounterOrDie(*sourceRoot),
