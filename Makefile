@@ -1,6 +1,7 @@
 .PHONY: image
 image:
 	kubectl dev build -t docker.io/warmmetal/csi-configmap:v0.2.1
+	kubectl dev build -t docker.io/warmmetal/csi-configmap:latest
 
 .PHONY: test
 test:
