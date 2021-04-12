@@ -86,7 +86,7 @@ type ConfigMapOptions struct {
 }
 
 func (m *Mounter) Mount(
-	ctx context.Context, volumeID, targetPath, cmName, cmNamespace, pod, podNs string, opts ConfigMapOptions,
+	ctx context.Context, volumeID, targetPath, cmName, cmNamespace, pod, podNs string, opts ConfigMapOptions, ro bool,
 ) error {
 	if len(volumeID) == 0 {
 		return status.Error(codes.InvalidArgument, "missing volumeId")
@@ -161,7 +161,11 @@ func (m *Mounter) Mount(
 		return err
 	}
 
-	return m.mounter.Mount(source, targetPath, "", []string{"rbind"})
+	mountOpts := []string{"rbind"}
+	if ro {
+		mountOpts = append(mountOpts, "ro")
+	}
+	return m.mounter.Mount(source, targetPath, "", mountOpts)
 }
 
 func (m *Mounter) Unmount(ctx context.Context, volumeID, targetPath string) error {
