@@ -56,7 +56,9 @@ func (n *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 			CommitChangesOn:   cmmouter.ConditionCommitChanges(req.VolumeContext[ctxKeyCommitChangesOn]),
 			ConflictPolicy:    cmmouter.ConfigMapConflictPolicy(req.VolumeContext[ctxKeyConflictPolicy]),
 			OversizePolicy:    cmmouter.ConfigMapOversizePolicy(req.VolumeContext[ctxKeyOversizePolicy]),
-		})
+		},
+		req.Readonly,
+	)
 	if err != nil {
 		return
 	}
